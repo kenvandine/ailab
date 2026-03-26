@@ -14,7 +14,7 @@ from pathlib import Path
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 CONTAINER_PREFIX = "ai-dev-box-"
-BASE_IMAGE = "ubuntu:devel"
+BASE_IMAGE = "ubuntu-daily:devel"
 
 # Ports proxied INTO the container (container localhost → host service)
 # Apps in the container connect to these as if they're local, but they reach the host.
