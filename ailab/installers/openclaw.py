@@ -101,16 +101,12 @@ class OpenclawInstaller:
         skip provider selection during 'openclaw onboard' when a config already exists."""
         config_file = cfg_dir / "openclaw.json"
         snippet = f"""
-# ailab: skip provider re-selection when config exists; suppress gateway
-# service errors (service is pre-installed as root by the installer).
+# ailab: skip provider re-selection when config exists (mirrors ubuclaw).
+# Gateway service is pre-installed as root by ailab installer.
 openclaw() {{
   if [ "${{1:-}}" = "onboard" ] && [ -f "{config_file}" ]; then
     shift
-    command openclaw onboard --auth-choice skip "$@" 2>&1 \\
-      | grep -v "Gateway service install failed" \\
-      | grep -v "systemctl daemon-reload failed" \\
-      | grep -v "Transport endpoint is not connected" \\
-      || true
+    command openclaw onboard --auth-choice skip "$@"
   else
     command openclaw "$@"
   fi
