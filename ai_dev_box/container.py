@@ -1,13 +1,11 @@
 """LXD container management for ai-dev-box."""
 
-import grp
 import importlib.resources
 import json
 import os
 import pwd
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -73,6 +71,16 @@ def container_config_dir(name: str, home: str) -> Path:
     """Per-container config directory on the host (also accessible inside the
     container at the same path, because the home dir is bind-mounted)."""
     return Path(home) / ".local" / "share" / "ai-dev-box" / "containers" / name
+
+
+def push_file(cname: str, remote_path: str, content: bytes | str):
+    """Write content to a file inside the container via lxc exec stdin.
+
+    Unlike 'lxc file push', this works on tmpfs mounts (e.g. /tmp).
+    """
+    if isinstance(content, bytes):
+        content = content.decode()
+    _lxc("exec", cname, "--", "bash", "-c", f"cat > {remote_path}", input=content)
 
 
 def set_container_env(cname: str, env: dict[str, str], profile_name: str | None = None):
@@ -257,19 +265,10 @@ def _run_init_script(cname: str, username: str, uid: int, gid: int, home: str):
     """Push and execute the container init script."""
     print("Running container initialization (this may take a few minutes)...")
 
-    # Get the init script from the package
     with importlib.resources.files("ai_dev_box.scripts").joinpath("container_init.sh").open("rb") as f:
         script_content = f.read()
 
-    # Push the script into the container
-    with tempfile.NamedTemporaryFile(suffix=".sh", delete=False) as tmp:
-        tmp.write(script_content)
-        tmp_path = tmp.name
-
-    try:
-        _lxc("file", "push", tmp_path, f"{cname}/tmp/ai-dev-box-init.sh")
-    finally:
-        os.unlink(tmp_path)
+    push_file(cname, "/tmp/ai-dev-box-init.sh", script_content)
 
     _lxc("exec", cname, "--",
          "bash", "/tmp/ai-dev-box-init.sh",

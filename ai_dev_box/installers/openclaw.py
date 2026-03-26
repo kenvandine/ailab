@@ -1,8 +1,6 @@
 """Installer for openclaw inside an ai-dev-box container."""
 
 import importlib.resources
-import os
-import tempfile
 
 from ..container import (
     _container_name,
@@ -11,6 +9,7 @@ from ..container import (
     _lxc,
     _wait_for_ready,
     container_config_dir,
+    push_file,
     set_container_env,
     OUTBOUND_PROXIES,
 )
@@ -123,14 +122,7 @@ openclaw() {{
         with importlib.resources.files("ai_dev_box.scripts").joinpath("setup_openclaw.js").open("rb") as f:
             script_content = f.read()
 
-        with tempfile.NamedTemporaryFile(suffix=".js", delete=False) as tmp:
-            tmp.write(script_content)
-            tmp_path = tmp.name
-
-        try:
-            _lxc("file", "push", tmp_path, f"{cname}/tmp/setup_openclaw.js")
-        finally:
-            os.unlink(tmp_path)
+        push_file(cname, "/tmp/setup_openclaw.js", script_content)
 
         _lxc(
             "exec", cname,
