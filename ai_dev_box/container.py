@@ -192,10 +192,12 @@ def create_container(name: str, extra_outbound_ports: list[tuple[int, int]] | No
         else:
             dev_name, host_port, container_port = entry
 
-        _lxc("config", "device", "add", cname, f"proxy-out-{dev_name}", "proxy",
-             f"listen=tcp:127.0.0.1:{host_port}",
-             f"connect=tcp:127.0.0.1:{container_port}",
-             "bind=host")
+        result = _lxc("config", "device", "add", cname, f"proxy-out-{dev_name}", "proxy",
+                       f"listen=tcp:127.0.0.1:{host_port}",
+                       f"connect=tcp:127.0.0.1:{container_port}",
+                       "bind=host", check=False)
+        if result.returncode != 0:
+            print(f"  Warning: skipping port {host_port} (already in use on host)")
 
     # ── Restart to apply idmap + devices ─────────────────────────────────────
     print("Restarting container to apply configuration...")
@@ -252,10 +254,13 @@ def add_port(name: str, host_port: int, container_port: int, direction: str = "o
 
     if direction == "outbound":
         dev_name = f"proxy-out-custom-{host_port}"
-        _lxc("config", "device", "add", cname, dev_name, "proxy",
-             f"listen=tcp:127.0.0.1:{host_port}",
-             f"connect=tcp:127.0.0.1:{container_port}",
-             "bind=host")
+        result = _lxc("config", "device", "add", cname, dev_name, "proxy",
+                       f"listen=tcp:127.0.0.1:{host_port}",
+                       f"connect=tcp:127.0.0.1:{container_port}",
+                       "bind=host", check=False)
+        if result.returncode != 0:
+            print(f"Error: port {host_port} is already in use on the host.")
+            sys.exit(1)
         print(f"Added outbound proxy: host:{host_port} → container:{container_port}")
     else:
         dev_name = f"proxy-in-custom-{container_port}"
