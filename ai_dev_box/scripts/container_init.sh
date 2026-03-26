@@ -55,15 +55,23 @@ apt-get install -y -q nodejs
 npm install -g npm@latest
 
 # ── User setup ─────────────────────────────────────────────────────────────────
-log "Setting up user $USERNAME..."
+log "Setting up user $USERNAME (uid=$USER_UID, gid=$USER_GID)..."
 
-# Create group if it doesn't exist
-if ! getent group "$USER_GID" >/dev/null 2>&1; then
+# If a group with GID already exists under a different name, rename it.
+EXISTING_GROUP=$(getent group "$USER_GID" | cut -d: -f1)
+if [ -n "$EXISTING_GROUP" ] && [ "$EXISTING_GROUP" != "$USERNAME" ]; then
+    log "Renaming existing group '$EXISTING_GROUP' (gid=$USER_GID) to '$USERNAME'"
+    groupmod -n "$USERNAME" "$EXISTING_GROUP"
+elif [ -z "$EXISTING_GROUP" ]; then
     groupadd -g "$USER_GID" "$USERNAME"
 fi
 
-# Create user if it doesn't exist
-if ! id "$USERNAME" >/dev/null 2>&1; then
+# If a user with UID already exists under a different name, rename it.
+EXISTING_USER=$(getent passwd "$USER_UID" | cut -d: -f1)
+if [ -n "$EXISTING_USER" ] && [ "$EXISTING_USER" != "$USERNAME" ]; then
+    log "Renaming existing user '$EXISTING_USER' (uid=$USER_UID) to '$USERNAME'"
+    usermod -l "$USERNAME" -d "$USER_HOME" -s /bin/bash "$EXISTING_USER"
+elif [ -z "$EXISTING_USER" ]; then
     useradd \
         --uid "$USER_UID" \
         --gid "$USER_GID" \
