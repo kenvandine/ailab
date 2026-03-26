@@ -56,6 +56,7 @@ class OpenclawInstaller:
             "OPENCLAW_CONFIG_PATH": str(cfg_dir / "openclaw.json"),
         }
         set_container_env(cname, env, profile_name="openclaw")
+        self._write_onboard_wrapper(cname, cfg_dir)
 
         print("Configuring openclaw (probing lemonade via Ollama API)...")
         self._run_setup(cname, uid, gid, home, cfg_dir)
@@ -70,6 +71,26 @@ class OpenclawInstaller:
         print()
         print("  Lemonade is pre-configured via localhost proxy (port 8000).")
         print("  Make sure lemonade-server is running on the host.")
+
+    def _write_onboard_wrapper(self, cname: str, cfg_dir):
+        """Append a shell function that mirrors the ubuclaw launcher behaviour:
+        skip provider selection during 'openclaw onboard' when a config already exists."""
+        config_file = cfg_dir / "openclaw.json"
+        snippet = f"""
+# ai-dev-box: skip provider re-selection when config exists (mirrors ubuclaw)
+openclaw() {{
+  if [ "${{1:-}}" = "onboard" ] && [ -f "{config_file}" ]; then
+    shift
+    command openclaw onboard --auth-choice skip "$@"
+  else
+    command openclaw "$@"
+  fi
+}}
+"""
+        _lxc("exec", cname, "--",
+             "bash", "-c",
+             "cat >> /etc/profile.d/ai-dev-box-openclaw.sh",
+             input=snippet)
 
     def _npm_install(self, cname: str, uid: int):
         """Install openclaw globally via npm inside the container (as root)."""
