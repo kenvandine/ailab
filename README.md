@@ -35,6 +35,16 @@ sudo usermod -aG lxd $USER   # then log out and back in
 
 ## Installation
 
+Install from the PPA:
+
+```bash
+sudo add-apt-repository ppa:ken-vandine/ailab
+sudo apt update
+sudo apt install ailab
+```
+
+Or install from source:
+
 ```bash
 git clone https://github.com/kenvandine/ailab
 cd ailab
@@ -119,8 +129,7 @@ ailab delete mybox --force   # skip confirmation
 ### `ailab install <name> <package>`
 
 Install a pre-configured AI tool into a container. Tools are configured
-with opinionated local-AI defaults (lemonade primary, ollama fallback,
-cloud providers disabled).
+with opinionated local-AI defaults and cloud providers disabled.
 
 ```bash
 ailab install mybox openclaw
@@ -166,9 +175,11 @@ ailab port remove mybox 9000
 | `nullclaw` | Lightweight static-binary AI agent gateway (Zig-built). Web UI at `http://localhost:3000`. |
 | `picoclaw` | Ultra-lightweight Go-based AI agent gateway (30+ providers). Web UI at `http://localhost:18800`. |
 
-All packages are configured to use lemonade-server as the primary model provider
-(via localhost port 8000) and ollama as the fallback (port 11434). Cloud
-providers are disabled by default.
+All packages are configured to prefer local model providers and disable cloud
+providers by default. `openclaw` uses a single `lemonade` provider on
+`localhost:8000` via the Ollama API. `nullclaw` and `picoclaw` are configured
+to use lemonade-server as the primary provider, with ollama available as a
+fallback on `localhost:11434`.
 
 ## How It Works
 
