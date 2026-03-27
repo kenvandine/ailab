@@ -67,7 +67,8 @@ jobs:
             lintian \
             pybuild-plugin-pyproject \
             python3-all \
-            python3-setuptools
+            python3-setuptools \
+            python3-setuptools-scm
 
       - name: Build source package (unsigned)
         run: debuild -us -uc -S

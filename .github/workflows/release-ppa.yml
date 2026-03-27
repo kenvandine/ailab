@@ -1,9 +1,11 @@
 name: Release to PPA
 
+# Triggered when a GitHub Release is published via the web UI.
+# Publishing the release creates the tag, which is available as
+# github.ref_name (e.g. "v0.1.0").  Draft releases do NOT trigger this.
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 jobs:
   upload-ppa:
@@ -17,6 +19,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history needed so setuptools-scm can resolve the version
+          fetch-depth: 0
 
       - name: Install build tools
         run: |
@@ -28,7 +33,8 @@ jobs:
             dput \
             pybuild-plugin-pyproject \
             python3-all \
-            python3-setuptools
+            python3-setuptools \
+            python3-setuptools-scm
 
       - name: Import GPG signing key
         uses: crazy-max/ghaction-import-gpg@v6
@@ -37,7 +43,8 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Parse version from tag
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_ENV"
+        # github.ref_name is the tag name, e.g. "v0.1.0" → VERSION="0.1.0"
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
       - name: Stamp changelog for ${{ matrix.distro }}
         env:
@@ -51,6 +58,10 @@ jobs:
             "Release ${VERSION} for ${{ matrix.distro }}"
 
       - name: Build signed source package
+        # SETUPTOOLS_SCM_PRETEND_VERSION is also set by debian/rules for
+        # Launchpad binary builds; set it here too in case debuild needs it.
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ env.VERSION }}
         run: debuild -S -sa -k"${{ secrets.GPG_KEY_ID }}"
 
       - name: Upload to ppa:ken-vandine/ailab

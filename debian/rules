@@ -2,5 +2,10 @@
 
 export PYBUILD_NAME=ailab
 
+# Derive upstream version from the changelog so setuptools-scm gets the right
+# version when building from a source tarball (no git history available).
+# e.g. "0.1.0-1~noble1" → "0.1.0"
+export SETUPTOOLS_SCM_PRETEND_VERSION := $(shell dpkg-parsechangelog -SVersion | sed 's/-[^-]*$$//')
+
 %:
 	dh $@ --buildsystem=pybuild --with python3

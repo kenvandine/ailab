@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=61", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ailab"
-version = "0.0.2"
+dynamic = ["version"]
 description = "LXD-based sandboxes for running AI tools safely on Ubuntu"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,11 @@ keywords = ["lxd", "ai", "sandbox", "ollama", "lemonade", "openclaw"]
 
 [project.scripts]
 ailab = "ailab.cli:main"
+
+[tool.setuptools_scm]
+# fallback for builds without git history (e.g. Launchpad binary builds);
+# the release workflow sets SETUPTOOLS_SCM_PRETEND_VERSION explicitly.
+fallback_version = "0.0.0"
 
 [tool.setuptools.packages.find]
 where = ["."]
