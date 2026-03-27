@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 // Writes an opinionated ~/.openclaw/openclaw.json that uses lemonade-server
-// via its Ollama-compatible API on port 8000.
+// via a custom "lemonade" provider that speaks the Ollama API on port 8000.
 //
-// Using api:"ollama" with the lemonade provider ID gives clean model names
-// (lemonade/model-name) instead of the auto-derived custom-127-0-0-1-8000
-// display name that openclaw generates for openai-completions custom URLs.
+// The openclaw config is intentionally limited to a single "lemonade"
+// provider so all cloud and alternate local providers are disabled.
 //
 // Ollama (port 11434) is intentionally omitted from the openclaw config to
 // avoid spurious discovery errors when it isn't running.  The port proxy
@@ -20,7 +19,6 @@ const os   = require('os');
 
 // lemonade exposes an Ollama-compatible API at port 8000.
 const LEMONADE = {
-  id:      'lemonade',
   baseUrl: 'http://localhost:8000',
   apiKey:  'lemonade',
   api:     'ollama',
@@ -43,37 +41,39 @@ const PREFERRED_MODELS = [
   'Qwen3-1.7B-GGUF',
 ];
 
-// Static model list used when lemonade is not reachable at install time.
-// openclaw will use these until it can refresh from the live API.
-const LEMONADE_STATIC_MODELS = PREFERRED_MODELS.map(id => ({
-  id,
-  name:          id,
-  reasoning:     false,
-  input:         ['text'],
-  cost:          { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 32768,
-  maxTokens:     4096,
-}));
+const FALLBACK_MODEL = 'Qwen3.5-9B-GGUF';
 
-function httpGet(url) {
+function httpRequest(method, url, body) {
   return new Promise((resolve, reject) => {
-    const req = http.get(url, { timeout: 3000 }, res => {
-      if (res.statusCode !== 200) {
-        return reject(new Error(`HTTP ${res.statusCode}`));
-      }
+    const data = body ? JSON.stringify(body) : null;
+    const options = {
+      method,
+      timeout: 5000,
+      headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {},
+    };
+    const req = http.request(url, options, res => {
       let body = '';
       res.on('data', chunk => { body += chunk; });
-      res.on('end', () => resolve(body));
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`HTTP ${res.statusCode}`));
+        }
+        resolve(body);
+      });
     });
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    if (data) {
+      req.write(data);
+    }
+    req.end();
   });
 }
 
 // Probe lemonade's Ollama-compatible /api/tags endpoint.
 async function probeOllamaModels(baseUrl) {
   try {
-    const body = await httpGet(`${baseUrl}/api/tags`);
+    const body = await httpRequest('GET', `${baseUrl}/api/tags`);
     const data = JSON.parse(body).models || [];
     return data.length > 0 ? data : null;
   } catch {
@@ -81,19 +81,22 @@ async function probeOllamaModels(baseUrl) {
   }
 }
 
-// Score a model for suitability as a primary chat/agent model.
-function modelScore(id) {
-  const s = id.toLowerCase();
-  if (/flux|sdxl|stable.diff/i.test(s))    return -30;
-  if (/kokoro|whisper|tts|speech/i.test(s)) return -20;
-  if (/embed|retriev/i.test(s))             return -20;
-  let score = 0;
-  const prefIdx = PREFERRED_MODELS.indexOf(id);
-  if (prefIdx !== -1)                        score += 100 - prefIdx;
-  if (s.includes('flm'))                     score += 20;
-  if (s.includes('gguf'))                    score += 10;
-  if (/instruct|it-|chat/i.test(s))          score +=  5;
-  return score;
+async function pullLemonadeModel(baseUrl, modelName) {
+  try {
+    await httpRequest('POST', `${baseUrl}/api/v1/pull`, { model_name: modelName });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function choosePreferredModel(downloadedIds) {
+  for (const preferred of PREFERRED_MODELS) {
+    if (downloadedIds.has(preferred)) {
+      return preferred;
+    }
+  }
+  return null;
 }
 
 async function main() {
@@ -102,41 +105,44 @@ async function main() {
   // Probe lemonade via the Ollama API.
   const rawModels = await probeOllamaModels(LEMONADE.baseUrl);
 
-  let models;
-  let live = false;
+  let modelIds = [];
+  let primaryModel = FALLBACK_MODEL;
 
   if (rawModels) {
-    live = true;
-    models = rawModels;
-    console.log(`ailab: lemonade found — ${models.length} model(s): ${models.map(m => m.name || m.id).join(', ')}`);
+    modelIds = rawModels
+      .map(m => m.name || m.id)
+      .filter(Boolean);
+    console.log(`ailab: lemonade found — ${modelIds.length} model(s): ${modelIds.join(', ')}`);
   } else {
-    models = LEMONADE_STATIC_MODELS;
     console.log('ailab: lemonade not reachable — pre-configuring with defaults');
     console.log('  (config will be ready once lemonade-server starts on the host)');
   }
 
-  // Normalise model objects: Ollama /api/tags uses 'name', static list uses 'id'.
-  const normModels = models.map(m => {
-    const id = m.name || m.id;
-    return {
-      id,
-      name:          id,
-      reasoning:     false,
-      input:         ['text'],
-      cost:          { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: m.details?.parameter_size ? undefined : 32768,
-      maxTokens:     4096,
-    };
-  }).filter(m => m.id);
+  const downloadedIds = new Set(modelIds);
+  const preferredModel = choosePreferredModel(downloadedIds);
+  if (preferredModel) {
+    primaryModel = preferredModel;
+  } else {
+    if (!downloadedIds.has(FALLBACK_MODEL)) {
+      const pullStarted = await pullLemonadeModel(LEMONADE.baseUrl, FALLBACK_MODEL);
+      if (pullStarted) {
+        console.log(`ailab: requested lemonade download for fallback model ${FALLBACK_MODEL}`);
+      } else if (rawModels) {
+        console.log(`ailab: could not request lemonade download for ${FALLBACK_MODEL}`);
+      }
+    }
+    downloadedIds.add(FALLBACK_MODEL);
+  }
 
-  // Pick the best model as primary.
-  const ranked = normModels
-    .map(m => ({ id: `lemonade/${m.id}`, score: modelScore(m.id) }))
-    .filter(m => m.score >= 0)
-    .sort((a, b) => b.score - a.score);
-
-  // Default to Qwen3.5-9B-GGUF if nothing scores (e.g. live model has unusual name).
-  const primary = ranked[0]?.id ?? `lemonade/${normModels[0]?.id ?? 'Qwen3.5-9B-GGUF'}`;
+  const normModels = Array.from(downloadedIds).map(id => ({
+    id,
+    name:          id,
+    reasoning:     false,
+    input:         ['text'],
+    cost:          { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 32768,
+    maxTokens:     4096,
+  }));
 
   const config = {
     gateway: {
@@ -151,7 +157,7 @@ async function main() {
         lemonade: {
           baseUrl: LEMONADE.baseUrl,
           apiKey:  LEMONADE.apiKey,
-          api:     LEMONADE.api,   // 'ollama' → clean "lemonade/model" display names
+          api:     LEMONADE.api,
           models:  normModels,
         },
       },
@@ -160,7 +166,7 @@ async function main() {
       defaults: {
         workspace: WORKSPACE,
         sandbox:   { mode: 'off' },
-        model:     { primary },
+        model:     { primary: `lemonade/${primaryModel}` },
       },
     },
   };
@@ -171,10 +177,11 @@ async function main() {
 
   console.log('ailab: openclaw configured');
   console.log(`  config:  ${CONFIG_FILE}`);
-  console.log(`  primary: ${primary}`);
+  console.log(`  primary: lemonade/${primaryModel}`);
   console.log('');
+  console.log('  Provider: lemonade only');
   console.log('  Lemonade → localhost:8000 via Ollama API (proxied from host)');
-  console.log('  Cloud providers disabled (models.mode: replace)');
+  console.log('  All non-lemonade providers disabled (models.mode: replace)');
   console.log('  Web UI → http://localhost:18789 (accessible on host)');
 }
 
