@@ -24,10 +24,10 @@ case "$1" in
             snap install lemonade-server
         fi
 
-        # Initialise LXD if we just installed it (lxc will now be on PATH)
-        if [ "$lxd_was_missing" = "1" ] && command -v lxc >/dev/null 2>&1; then
+        # Initialise LXD if we just installed it
+        if [ "$lxd_was_missing" = "1" ]; then
             echo "ailab: initialising lxd..."
-            lxd init --auto
+            /snap/bin/lxd init --auto
         fi
 
         # Add every member of the 'users' group to the 'lxd' group
