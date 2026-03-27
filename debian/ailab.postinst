@@ -18,7 +18,8 @@ case "$1" in
         fi
 
         if ! snap list lemonade-server >/dev/null 2>&1 \
-            && ! dpkg-query -W -f='${Status}' lemonade-server 2>/dev/null | grep -q "install ok installed"; then
+            && ! dpkg-query -W -f='${Status}' lemonade-server 2>/dev/null | grep -q "install ok installed" \
+            && ! ss -tlnp 2>/dev/null | grep -q ':8000 '; then
             echo "ailab: installing lemonade-server snap..."
             snap install lemonade-server
         fi
