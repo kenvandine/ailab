@@ -29,7 +29,7 @@ while keeping installed software isolated from the rest of your system.
 To install LXD:
 ```bash
 sudo snap install lxd
-sudo lxd init --minimal
+sudo lxd init --auto
 sudo usermod -aG lxd $USER   # then log out and back in
 ```
 
