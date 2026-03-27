@@ -71,6 +71,62 @@ def _current_user():
     return pw.pw_name, uid, gid, pw.pw_dir
 
 
+def _yaml_scalar(value) -> str:
+    """Render a scalar value safely for the simple YAML we emit to lxc."""
+    return json.dumps(str(value))
+
+
+def _profile_yaml(config: dict[str, str], devices: dict[str, dict[str, str]]) -> str:
+    """Render a minimal LXD profile document."""
+    lines = ["config:"]
+    for key, value in config.items():
+        lines.append(f"  {key}: {_yaml_scalar(value)}")
+
+    lines.extend([
+        "description: ailab profile",
+        "devices:",
+    ])
+
+    for dev_name, attrs in devices.items():
+        lines.append(f"  {dev_name}:")
+        for key, value in attrs.items():
+            lines.append(f"    {key}: {_yaml_scalar(value)}")
+
+    return "\n".join(lines) + "\n"
+
+
+def _default_profile_devices() -> dict[str, dict[str, str]]:
+    """Return root/nic devices from the host's default LXD profile."""
+    fallback = {
+        "eth0": {"name": "eth0", "network": "lxdbr0", "type": "nic"},
+        "root": {"path": "/", "pool": "default", "type": "disk"},
+    }
+
+    result = _lxc_admin("profile", "show", "default", "--format=json", capture=True, check=False)
+    if result.returncode != 0:
+        return fallback
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return fallback
+
+    devices = data.get("devices", {})
+
+    selected = {}
+    if "eth0" in devices:
+        selected["eth0"] = {str(k): str(v) for k, v in devices["eth0"].items()}
+    if "root" in devices:
+        selected["root"] = {str(k): str(v) for k, v in devices["root"].items()}
+
+    if "eth0" not in selected:
+        selected["eth0"] = fallback["eth0"]
+    if "root" not in selected:
+        selected["root"] = fallback["root"]
+
+    return selected
+
+
 def container_config_dir(name: str, home: str) -> Path:
     """Per-container config directory on the host (also accessible inside the
     container at the same path, because the home dir is bind-mounted)."""
@@ -162,25 +218,14 @@ def ensure_ailab_project():
                    "--config", "features.images=false")
 
     result = _lxc("profile", "show", AILAB_PROJECT, capture=True, check=False)
-    if result.returncode == 0:
-        return
+    if result.returncode != 0:
+        print(f"Creating LXD profile '{AILAB_PROJECT}'...")
+        _lxc("profile", "create", AILAB_PROJECT)
 
-    print(f"Creating LXD profile '{AILAB_PROJECT}'...")
-    _lxc("profile", "create", AILAB_PROJECT)
-    profile_yaml = """\
-config:
-  security.nesting: "true"
-description: ailab profile
-devices:
-  eth0:
-    name: eth0
-    network: lxdbr0
-    type: nic
-  root:
-    path: /
-    pool: default
-    type: disk
-"""
+    profile_yaml = _profile_yaml(
+        {"security.nesting": "true"},
+        _default_profile_devices(),
+    )
     _lxc("profile", "edit", AILAB_PROJECT, input=profile_yaml)
 
 
