@@ -26,24 +26,26 @@ while keeping installed software isolated from the rest of your system.
 - [LXD](https://ubuntu.com/lxd) installed and initialised (`lxd init`)
 - Python 3.11 or later
 
-To install LXD:
-```bash
-sudo snap install lxd
-sudo lxd init --auto
-sudo usermod -aG lxd $USER   # then log out and back in
-```
-
 ## Installation
 
 Install from the PPA:
 
 ```bash
 sudo add-apt-repository ppa:ken-vandine/ailab
-sudo apt update
 sudo apt install ailab
+sudo lxd init --auto
+sudo usermod -aG lxd $USER   # then reboot
 ```
 
 Or install from source:
+
+Install LXD:
+```bash
+sudo snap install lxd
+sudo lxd init --auto
+sudo usermod -aG lxd $USER   # then reboot
+```
+
 
 ```bash
 git clone https://github.com/kenvandine/ailab
