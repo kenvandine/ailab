@@ -3,7 +3,7 @@
 Run AI tools safely on Ubuntu — no technical experience required.
 
 AI Lab creates lightweight [LXD](https://ubuntu.com/lxd) containers that are
-pre-wired to use AI services running on your host (lemonade-server, ollama).
+pre-wired to use AI services running on your with host lemonade-server.
 Each container shares your home directory, so your files are always accessible,
 while keeping installed software isolated from the rest of your system.
 
