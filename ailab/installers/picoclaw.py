@@ -75,9 +75,10 @@ class PicoClawInstaller:
 set -eu
 ARCH=$(uname -m)
 case "$ARCH" in
-  x86_64)  GOARCH="amd64" ;;
-  aarch64) GOARCH="arm64" ;;
-  armv7l)  GOARCH="arm" ;;
+  x86_64)  PICOARCH="x86_64" ;;
+  aarch64) PICOARCH="arm64" ;;
+  armv7l)  PICOARCH="armv7" ;;
+  armv6l)  PICOARCH="armv6" ;;
   *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
 
@@ -93,50 +94,47 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-echo "ailab: picoclaw version ${VERSION}, arch ${GOARCH}"
+echo "ailab: picoclaw version ${VERSION}, arch ${PICOARCH}"
 
-# Try common binary naming conventions for Go projects
-install_bin() {
-  local url="$1" dest="$2"
-  if curl -fsSL --connect-timeout 10 "$url" -o "$dest" 2>/dev/null; then
-    chmod +x "$dest"
-    echo "ailab: installed from ${url}"
-    return 0
+find_release_asset_url() {
+  local asset_name="$1"
+  printf '%s' "$RELEASE_JSON" \
+    | grep "\"browser_download_url\": \".*/${asset_name}\"" \
+    | head -1 \
+    | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+}
+
+install_from_archive() {
+  local url="$1" tmp archive bin
+  tmp=$(mktemp -d)
+  archive="$tmp/picoclaw.tar.gz"
+  if curl -fsSL --connect-timeout 10 "$url" -o "$archive" 2>/dev/null \
+      && tar -xzf "$archive" -C "$tmp" 2>/dev/null; then
+    bin=$(find "$tmp" -name 'picoclaw' -type f | head -1)
+    if [ -n "$bin" ]; then
+      install -m 755 "$bin" /usr/local/bin/picoclaw
+      rm -rf "$tmp"
+      echo "ailab: installed from ${url}"
+      return 0
+    fi
   fi
+  rm -rf "$tmp"
   return 1
 }
 
 INSTALLED=0
-for NAME in \
-    "picoclaw-linux-${GOARCH}" \
-    "picoclaw_linux_${GOARCH}" \
-    "picoclaw-linux-${GOARCH}.bin"; do
-  URL="https://github.com/sipeed/picoclaw/releases/download/${VERSION}/${NAME}"
-  if install_bin "$URL" /usr/local/bin/picoclaw; then
-    INSTALLED=1
-    break
-  fi
-done
+ARCHIVE_NAME="picoclaw_Linux_${PICOARCH}.tar.gz"
+URL=$(find_release_asset_url "$ARCHIVE_NAME")
+if [ -n "${URL:-}" ] && install_from_archive "$URL"; then
+  INSTALLED=1
+fi
 
-# Try tar.gz variants
+# Fallback to direct release URL if GitHub API output shape changes.
 if [ "$INSTALLED" -eq 0 ]; then
-  for NAME in \
-      "picoclaw-linux-${GOARCH}.tar.gz" \
-      "picoclaw_linux_${GOARCH}.tar.gz"; do
-    URL="https://github.com/sipeed/picoclaw/releases/download/${VERSION}/${NAME}"
-    TMP=$(mktemp -d)
-    if curl -fsSL --connect-timeout 10 "$URL" | tar -xz -C "$TMP" 2>/dev/null; then
-      BIN=$(find "$TMP" -name 'picoclaw' -type f | head -1)
-      if [ -n "$BIN" ]; then
-        install -m 755 "$BIN" /usr/local/bin/picoclaw
-        rm -rf "$TMP"
-        INSTALLED=1
-        echo "ailab: installed from ${URL}"
-        break
-      fi
-    fi
-    rm -rf "$TMP"
-  done
+  URL="https://github.com/sipeed/picoclaw/releases/download/${VERSION}/${ARCHIVE_NAME}"
+  if install_from_archive "$URL"; then
+    INSTALLED=1
+  fi
 fi
 
 if [ "$INSTALLED" -eq 0 ]; then
