@@ -4,6 +4,8 @@ import importlib.resources
 import json
 import os
 import pwd
+import shutil
+import shlex
 import subprocess
 import sys
 import time
@@ -35,13 +37,73 @@ OUTBOUND_PROXIES = [
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _user_has_group_membership(group_name: str) -> bool:
+    """Return True if getent reports that the current user is in the named group."""
+    username, _, gid, _ = _current_user()
+    result = subprocess.run(
+        ["getent", "group", group_name],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return False
+
+    fields = result.stdout.strip().split(":", 3)
+    if len(fields) != 4:
+        return False
+
+    _, _, group_gid, members = fields
+    member_names = [m for m in members.split(",") if m]
+    return group_gid == str(gid) or username in member_names
+
+
+def _process_has_group(group_name: str) -> bool:
+    """Return True if the current process already has the named group active."""
+    result = subprocess.run(
+        ["getent", "group", group_name],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return False
+
+    fields = result.stdout.strip().split(":", 3)
+    if len(fields) != 4:
+        return False
+
+    group_gid = int(fields[2])
+    return group_gid in os.getgroups() or os.getgid() == group_gid
+
+
+def _wrap_with_lxd_group(args: list[str]) -> list[str]:
+    """Refresh lxd group membership for this command when needed.
+
+    If the user has been added to the lxd group but the current shell hasn't
+    picked it up yet, run the command via `sg lxd -c ...` so lxc commands work
+    immediately without requiring logout/login or `newgrp` in the parent shell.
+    """
+    if not args or args[0] != "lxc":
+        return args
+
+    if shutil.which("sg") is None:
+        return args
+
+    if _process_has_group("lxd") or not _user_has_group_membership("lxd"):
+        return args
+
+    return ["sg", "lxd", "-c", shlex.join(args)]
+
 def _run(args, *, check=True, capture=False, input=None):
     """Run a command, returning CompletedProcess."""
     kwargs = dict(check=check, text=True, input=input)
     if capture:
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE
-    return subprocess.run(args, **kwargs)
+    return subprocess.run(_wrap_with_lxd_group(args), **kwargs)
 
 
 def _lxc(*args, capture=False, check=True, input=None):
@@ -441,7 +503,7 @@ def run_container(name: str, post_cmds: list[str] | None = None):
     else:
         exec_argv = ["/bin/bash", "--login"]
 
-    os.execvp("lxc", [
+    exec_args = _wrap_with_lxd_group([
         "lxc", "--project", AILAB_PROJECT,
         "exec", cname,
         f"--user={uid}",
@@ -456,6 +518,7 @@ def run_container(name: str, post_cmds: list[str] | None = None):
         "--",
         *exec_argv,
     ])
+    os.execvp(exec_args[0], exec_args)
 
 
 def stop_container(name: str):
