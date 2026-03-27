@@ -33,9 +33,9 @@ Install from the PPA:
 ```bash
 sudo add-apt-repository ppa:ken-vandine/ailab
 sudo apt install ailab
-sudo lxd init --auto
-sudo usermod -aG lxd $USER   # then reboot
 ```
+
+Then reboot!
 
 Or install from source:
 
